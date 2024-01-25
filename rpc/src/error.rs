@@ -13,6 +13,12 @@ type ReqwestError = flex_error::DisplayOnly<reqwest::Error>;
 type ReqwestError = flex_error::NoSource;
 
 #[cfg(feature = "reqwest")]
+type InvalidHeaderValue = flex_error::DisplayOnly<reqwest::header::InvalidHeaderValue>;
+
+#[cfg(not(feature = "reqwest"))]
+type InvalidHeaderValue = flex_error::NoSource;
+
+#[cfg(feature = "reqwest")]
 type HttpStatusCode = reqwest::StatusCode;
 
 #[cfg(not(feature = "reqwest"))]
@@ -44,6 +50,13 @@ define_error! {
         Http
             [ ReqwestError ]
             | _ | { "HTTP error" },
+
+        InvalidAuthorization
+            | _ | { "invalid Authorization" },
+
+        InvalidHeaderValue
+            [ InvalidHeaderValue ]
+            | _| { "Invalid HTTP header value" },
 
         InvalidProxy
             [ ReqwestError ]

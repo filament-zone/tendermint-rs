@@ -2,11 +2,15 @@
 //! authorizing a HTTP or WebSocket RPC client using
 //! HTTP Basic authentication.
 
+use alloc::borrow::ToOwned as _;
 use alloc::string::{String, ToString};
 use core::fmt;
+use core::str::FromStr;
 
 use subtle_encoding::base64;
 use url::Url;
+
+use crate::Error;
 
 /// An HTTP authorization.
 ///
@@ -14,13 +18,29 @@ use url::Url;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Authorization {
     Basic(String),
+    Bearer(String),
 }
 
 impl fmt::Display for Authorization {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Basic(cred) => write!(f, "Basic {cred}"),
+            Self::Bearer(token) => write!(f, "Bearer {token}"),
         }
+    }
+}
+
+impl FromStr for Authorization {
+    type Err = Error;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        if let Some(auth) = input.strip_prefix("Basic ") {
+            return Ok(Self::Basic(auth.to_owned()));
+        } else if let Some(auth) = input.strip_prefix("Bearer ") {
+            return Ok(Self::Bearer(auth.to_owned()));
+        }
+
+        Err(Error::invalid_authorization())
     }
 }
 

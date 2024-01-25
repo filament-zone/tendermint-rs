@@ -12,7 +12,7 @@ use tendermint::{block::Height, evidence::Evidence, Hash};
 use tendermint_config::net;
 
 use super::auth;
-use crate::prelude::*;
+use crate::{client::Authorization, prelude::*};
 use crate::{
     client::{Client, CompatMode},
     dialect::{v0_34, Dialect, LatestDialect},
@@ -63,6 +63,7 @@ pub struct Builder {
     url: HttpClientUrl,
     compat: CompatMode,
     proxy_url: Option<HttpClientUrl>,
+    authorization: Option<Authorization>,
 }
 
 impl Builder {
@@ -71,6 +72,11 @@ impl Builder {
     /// The default is the latest protocol version supported by this crate.
     pub fn compat_mode(mut self, mode: CompatMode) -> Self {
         self.compat = mode;
+        self
+    }
+
+    pub fn authorization(mut self, auth: Option<Authorization>) -> Self {
+        self.authorization = auth;
         self
     }
 
@@ -87,7 +93,34 @@ impl Builder {
 
     /// Try to create a client with the options specified for this builder.
     pub fn build(self) -> Result<HttpClient, Error> {
-        let builder = reqwest::ClientBuilder::new().user_agent(USER_AGENT);
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::ACCEPT,
+            header::HeaderValue::from_static("application/json"),
+        );
+        headers.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/json"),
+        );
+
+        if let Some(auth) = self.authorization {
+            headers.insert(
+                header::AUTHORIZATION,
+                header::HeaderValue::from_str(&auth.to_string())
+                    .map_err(Error::invalid_header_value)?,
+            );
+        } else if let Some(auth) = auth::authorize(&self.url.0.as_ref()) {
+            headers.insert(
+                header::AUTHORIZATION,
+                header::HeaderValue::from_str(&auth.to_string())
+                    .map_err(Error::invalid_header_value)?,
+            );
+        }
+
+        let builder = reqwest::ClientBuilder::new()
+            .user_agent(USER_AGENT)
+            .default_headers(headers);
+
         let inner = match self.proxy_url {
             None => builder.build().map_err(Error::http)?,
             Some(proxy_url) => {
@@ -99,6 +132,7 @@ impl Builder {
                 builder.proxy(proxy).build().map_err(Error::http)?
             },
         };
+
         Ok(HttpClient {
             inner,
             url: self.url.into(),
@@ -142,6 +176,7 @@ impl HttpClient {
             url,
             compat: Default::default(),
             proxy_url: None,
+            authorization: None,
         }
     }
 
@@ -162,17 +197,11 @@ impl HttpClient {
 
         tracing::debug!(url = %self.url, body = %request_body, "outgoing request");
 
-        let mut builder = self
-            .inner
+        self.inner
             .post(self.url.clone())
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(request_body.into_bytes());
-
-        if let Some(auth) = auth::authorize(&self.url) {
-            builder = builder.header(header::AUTHORIZATION, auth.to_string());
-        }
-
-        builder.build().map_err(Error::http)
+            .body(request_body.into_bytes())
+            .build()
+            .map_err(Error::http)
     }
 
     async fn perform_with_dialect<R, S>(&self, request: R, _dialect: S) -> Result<R::Output, Error>
@@ -184,6 +213,9 @@ impl HttpClient {
         let response = self.inner.execute(request).await.map_err(Error::http)?;
         let response_status = response.status();
         let response_body = response.bytes().await.map_err(Error::http)?;
+        if response_status != 200 {
+            std::dbg!(&response_body);
+        }
 
         tracing::debug!(
             status = %response_status,

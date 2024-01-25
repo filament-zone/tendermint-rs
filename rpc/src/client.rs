@@ -13,6 +13,8 @@ pub mod sync;
 
 #[cfg(any(feature = "http-client", feature = "websocket-client"))]
 mod transport;
+#[cfg(any(feature = "http-client", feature = "websocket-client"))]
+pub use transport::auth::Authorization;
 
 #[cfg(feature = "http-client")]
 pub use transport::http::{self, HttpClient, HttpClientUrl};
